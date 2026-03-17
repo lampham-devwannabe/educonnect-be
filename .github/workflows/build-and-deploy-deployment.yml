@@ -1,0 +1,421 @@
+name: Build & Deploy (deployment branch)
+
+on:
+  push:
+    branches: [ "deployment" ]
+    paths:
+      - "src/main/**"
+      - "Dockerfile"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-deployment
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/educonnect-be
+  CONTAINER_NAME: educonnect-be
+  APP_PORT: "8080"
+
+jobs:
+  build_and_push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      TAG: ${{ steps.vars.outputs.TAG }}
+      START_TIME: ${{ steps.start_time.outputs.START_TIME }}
+    steps:
+      - name: Record start time
+        id: start_time
+        run: |
+          START_TIME=$(date +%s)
+          echo "START_TIME=${START_TIME}" >> $GITHUB_OUTPUT
+          echo "Workflow started at: $(date -u -d @${START_TIME} +'%Y-%m-%d %H:%M:%S UTC')"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Build with Maven
+        run: mvn clean package -DskipTests
+
+      - name: Debug JARs
+        run: ls -la target/
+
+      - name: Rename JAR to fixed name
+        run: |
+          JAR_FILE=$(find target -name "*.jar" -not -name "*sources*" -not -name "*javadoc*" -not -name "*tests*" | head -1)
+          if [ -f "$JAR_FILE" ]; then
+            mv "$JAR_FILE" target/educonnect.jar
+            echo "Renamed $JAR_FILE → target/educonnect.jar"
+          else
+            echo "No suitable JAR found"; exit 1
+          fi
+
+      - name: Compute image TAG (date + short SHA)
+        id: vars
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          TAG="$(date +'%Y%m%d')-${SHORT_SHA}"
+          echo "TAG=${TAG}" >> $GITHUB_OUTPUT
+          echo "Will tag image as: ${TAG}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build & Push image with tags
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.TAG }}
+            ${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build_and_push
+    environment: deployment
+    env:
+      TAG: ${{ needs.build_and_push.outputs.TAG }}
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          envs: IMAGE_NAME,CONTAINER_NAME,APP_PORT,TAG
+          script: |
+            set -euo pipefail
+
+            echo "Create Docker network if not exists"
+            docker network create educonnect-network || true
+
+            echo "Pull image: ${IMAGE_NAME}:${TAG}"
+            docker pull "${IMAGE_NAME}:${TAG}"
+
+            echo "=========================================="
+            echo "Stopping old container gracefully..."
+            echo "=========================================="
+
+            if docker ps -a | grep -q ${CONTAINER_NAME}; then
+              echo "Found existing container: ${CONTAINER_NAME}"
+
+              # Stop with timeout
+              echo "Stopping container (timeout 30s)..."
+              docker stop -t 30 "${CONTAINER_NAME}" || true
+
+              # Wait a bit for cleanup
+              sleep 3
+
+              # Force remove if still exists
+              echo "Removing container..."
+              docker rm -f "${CONTAINER_NAME}" || true
+
+              # Additional wait for port/resource release
+              echo "Waiting for resources to be released..."
+              sleep 5
+            else
+              echo "No existing container found"
+            fi
+
+
+            # Verify container is completely gone
+            if docker ps -a | grep -q ${CONTAINER_NAME}; then
+              echo "❌ Failed to remove old container"
+              docker ps -a | grep ${CONTAINER_NAME}
+              exit 1
+            fi
+
+            echo "=========================================="
+            echo "Starting new container..."
+            echo "=========================================="
+
+            docker run -d --name "${CONTAINER_NAME}" \
+              --network educonnect-network \
+              -e TZ='Asia/Ho_Chi_Minh' \
+              -e SPRING_PROFILES_ACTIVE='${{ secrets.SPRING_PROFILES_ACTIVE }}' \
+              -e DB_HOST='${{ secrets.DB_HOST }}' \
+              -e DB_PORT='${{ secrets.DB_PORT }}' \
+              -e DB_NAME='${{ secrets.DB_NAME }}' \
+              -e DB_USERNAME='${{ secrets.DB_USERNAME }}' \
+              -e DB_PASSWORD='${{ secrets.DB_PASSWORD }}' \
+              -e CLOUDINARY_URL='${{ secrets.CLOUDINARY_URL }}' \
+              -e JWT_SIGNER_KEY='${{ secrets.JWT_SIGNER_KEY }}' \
+              -e JWT_VALID_DURATION='${{ secrets.JWT_VALID_DURATION }}' \
+              -e JWT_REFRESHABLE_DURATION='${{ secrets.JWT_REFRESHABLE_DURATION }}' \
+              -e S3_ACCESS_KEY='${{ secrets.S3_ACCESS_KEY }}' \
+              -e S3_SECRET_KEY='${{ secrets.S3_SECRET_KEY }}' \
+              -e MAILGUN_API_KEY='${{ secrets.MAILGUN_API_KEY }}' \
+              -e MAILGUN_DOMAIN='${{ vars.MAILGUN_DOMAIN }}' \
+              -e MAILGUN_FROM='${{ vars.MAILGUN_FROM }}' \
+              -e MAILGUN_NAME='${{ vars.MAILGUN_NAME }}' \
+              -e OPENAI_API_KEY='${{ secrets.OPENAI_API_KEY }}' \
+              -e ZOOM_ACCOUNT_ID='${{ secrets.ZOOM_ACCOUNT_ID }}' \
+              -e ZOOM_CLIENT_ID='${{ secrets.ZOOM_CLIENT_ID }}' \
+              -e ZOOM_CLIENT_SECRET='${{ secrets.ZOOM_CLIENT_SECRET }}' \
+              -e OPENSEARCH_HOST='${{ secrets.OPENSEARCH_HOST }}' \
+              -e OPENSEARCH_USER='${{ secrets.OPENSEARCH_USER }}' \
+              -e OPENSEARCH_PASSWORD='${{ secrets.OPENSEARCH_PASSWORD }}' \
+              -e OPENSEARCH_MODEL='${{ secrets.OPENSEARCH_MODEL }}' \
+              -e CDN_DOMAIN='${{ secrets.CDN_DOMAIN }}' \
+              -e KEY_PAIR_ID='${{ secrets.KEY_PAIR_ID }}' \
+              -e PAYOS_CLIENT_ID='${{ secrets.PAYOS_CLIENT_ID }}' \
+              -e PAYOS_CLIENT_SECRET='${{ secrets.PAYOS_CLIENT_SECRET }}' \
+              -e PAYOS_CHECKSUM_KEY='${{ secrets.PAYOS_CHECKSUM_KEY }}' \
+              -e PAYOS_RETURN_URL='${{ vars.PAYOS_RETURN_URL }}' \
+              -e PAYOS_CANCEL_URL='${{ vars.PAYOS_CANCEL_URL }}' \
+              -e RECOMMENDATION_API_URL='${{ secrets.RECOMMENDATION_API_URL }}' \
+              -e LOG_PATH='/var/log/server' \
+              -v ./logs:/var/log/server \
+              --restart unless-stopped \
+              "${IMAGE_NAME}:${TAG}"
+
+
+            CONTAINER_ID=$(docker ps -aq -f name=${CONTAINER_NAME})
+            echo "Container ID: ${CONTAINER_ID}"
+
+            echo "=========================================="
+            echo "Health checking container..."
+            echo "=========================================="
+
+            # Wait and check multiple times
+            for i in {1..6}; do
+              echo "Check attempt $i/6..."
+              sleep 5
+
+              if docker ps | grep -q ${CONTAINER_NAME}; then
+                echo "✅ Container is running"
+
+                # Show container info
+                docker ps --filter name=${CONTAINER_NAME} --format "table {{.ID}}\t{{.Status}}\t{{.Ports}}"
+
+                # Show last 20 lines of logs
+                echo ""
+                echo "Recent logs:"
+                docker logs --tail 20 ${CONTAINER_NAME} 2>&1
+
+                # If we reach 30 seconds, consider it successful
+                if [ $i -ge 3 ]; then
+                  echo ""
+                  echo "✅ Container started successfully: ${CONTAINER_NAME}"
+                  break
+                fi
+              else
+                echo "❌ Container not running, attempt $i/6"
+
+                if [ $i -eq 6 ]; then
+                  echo ""
+                  echo "❌ Container failed to start after 30 seconds"
+                  echo "Full container logs:"
+                  docker logs ${CONTAINER_NAME} 2>&1 || true
+
+                  echo ""
+                  echo "Container inspect:"
+                  docker inspect ${CONTAINER_NAME} 2>&1 || true
+
+                  exit 1
+                fi
+              fi
+            done
+
+
+            echo "=========================================="
+            echo "Cleanup old images..."
+            echo "=========================================="
+            docker image prune -f
+
+            echo ""
+            echo "✅ Deployment completed successfully!"
+
+  notify_lark:
+    name: Notify Lark
+    runs-on: ubuntu-latest
+    needs: [ build_and_push, deploy ]
+    if: always()
+    environment: deployment
+    env:
+      APP_ID: ${{ vars.LARK_APP_ID }}
+      APP_SECRET: ${{ vars.LARK_APP_SECRET }}
+      CHAT_ID: ${{ vars.LARK_CHAT_ID_DEPLOYMENT }}
+      SERVER_HOST: ${{ secrets.SERVER_HOST }}
+      BUILD_STATUS: ${{ needs.build_and_push.result }}
+      DEPLOY_STATUS: ${{ needs.deploy.result }}
+      TAG: ${{ needs.build_and_push.outputs.TAG }}
+      START_TIME: ${{ needs.build_and_push.outputs.START_TIME }}
+      REPO: ${{ github.repository }}
+      BRANCH: ${{ github.ref_name }}
+      COMMIT_SHA: ${{ github.sha }}
+      COMMIT_MSG: ${{ github.event.head_commit.message }}
+      COMMIT_AUTHOR: ${{ github.actor }}
+      RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      WORKFLOW_NAME: ${{ github.workflow }}
+    steps:
+      - name: Debug environment variables
+        run: |
+          echo "APP_ID length: ${#APP_ID}"
+          echo "APP_SECRET length: ${#APP_SECRET}"
+          echo "CHAT_ID: ${CHAT_ID}"
+          echo "CHAT_ID length: ${#CHAT_ID}"
+          if [ -z "$CHAT_ID" ]; then
+            echo "❌ CHAT_ID is empty or not set"
+            exit 1
+          fi
+
+      - name: Get Lark tenant token
+        id: get_token
+        run: |
+          RESP=$(curl -s -X POST "https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal" \
+            -H "Content-Type: application/json" \
+            -d "{\"app_id\":\"$APP_ID\",\"app_secret\":\"$APP_SECRET\"}")
+
+          echo "Response: $RESP"
+          TOKEN=$(echo "$RESP" | jq -r '.tenant_access_token')
+          if [ "$TOKEN" = "null" ] || [ -z "$TOKEN" ]; then
+            echo "❌ Failed to get tenant_access_token"
+            exit 1
+          fi
+          echo "TOKEN=$TOKEN" >> $GITHUB_ENV
+
+      - name: Determine overall status
+        id: overall_status
+        run: |
+          if [ "$BUILD_STATUS" = "success" ] && [ "$DEPLOY_STATUS" = "success" ]; then
+            echo "OVERALL_ICON=🎉" >> $GITHUB_ENV
+            echo "OVERALL_STATUS=Successfully Deployed" >> $GITHUB_ENV
+            echo "STATUS_COLOR=success" >> $GITHUB_ENV
+          elif [ "$BUILD_STATUS" = "failure" ] || [ "$DEPLOY_STATUS" = "failure" ]; then
+            echo "OVERALL_ICON=❌" >> $GITHUB_ENV
+            echo "OVERALL_STATUS=Deployment Failed" >> $GITHUB_ENV
+            echo "STATUS_COLOR=danger" >> $GITHUB_ENV
+          elif [ "$BUILD_STATUS" = "cancelled" ] || [ "$DEPLOY_STATUS" = "cancelled" ]; then
+            echo "OVERALL_ICON=⚠️" >> $GITHUB_ENV
+            echo "OVERALL_STATUS=Deployment Cancelled" >> $GITHUB_ENV
+            echo "STATUS_COLOR=warning" >> $GITHUB_ENV
+          else
+            echo "OVERALL_ICON=⏸️" >> $GITHUB_ENV
+            echo "OVERALL_STATUS=Deployment Skipped" >> $GITHUB_ENV
+            echo "STATUS_COLOR=neutral" >> $GITHUB_ENV
+          fi
+
+          # Set icons for individual steps
+          if [ "$BUILD_STATUS" = "success" ]; then 
+            echo "BUILD_ICON=✅" >> $GITHUB_ENV
+          elif [ "$BUILD_STATUS" = "failure" ]; then 
+            echo "BUILD_ICON=❌" >> $GITHUB_ENV
+          elif [ "$BUILD_STATUS" = "cancelled" ]; then 
+            echo "BUILD_ICON=⚠️" >> $GITHUB_ENV
+          else 
+            echo "BUILD_ICON=⏭️" >> $GITHUB_ENV
+          fi
+
+          if [ "$DEPLOY_STATUS" = "success" ]; then 
+            echo "DEPLOY_ICON=✅" >> $GITHUB_ENV
+          elif [ "$DEPLOY_STATUS" = "failure" ]; then 
+            echo "DEPLOY_ICON=❌" >> $GITHUB_ENV
+          elif [ "$DEPLOY_STATUS" = "cancelled" ]; then 
+            echo "DEPLOY_ICON=⚠️" >> $GITHUB_ENV
+          else 
+            echo "DEPLOY_ICON=⏭️" >> $GITHUB_ENV
+          fi
+
+      - name: Send Lark notification
+        run: |
+          # Trim any trailing CR/LF from SERVER_HOST to avoid URL line breaks
+          SERVER_HOST_CLEAN=$(printf "%s" "$SERVER_HOST" | tr -d '\r\n')
+          SWAGGER_URL="https://api.educonnect.dev/swagger-ui/index.html"
+
+          # Truncate commit message to first line (max 100 chars)
+          COMMIT_MSG_SHORT=$(echo "$COMMIT_MSG" | head -n1 | cut -c1-100)
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+
+          # Calculate workflow duration
+          END_TIME=$(date +%s)
+          if [ -n "$START_TIME" ]; then
+            DURATION=$((END_TIME - START_TIME))
+            MINUTES=$((DURATION / 60))
+            SECONDS=$((DURATION % 60))
+            if [ $MINUTES -gt 0 ]; then
+              DURATION_TEXT="${MINUTES}m ${SECONDS}s"
+            else
+              DURATION_TEXT="${SECONDS}s"
+            fi
+          else
+            DURATION_TEXT="N/A"
+          fi
+
+          # Get current timestamp in Vietnam time (UTC+7)
+          TIMESTAMP=$(TZ='Asia/Ho_Chi_Minh' date +"%Y-%m-%d %H:%M:%S")
+
+          MSG="${OVERALL_ICON} ${OVERALL_STATUS}
+
+          ━━━━━━━━━━━━━━━━━━━━━━
+          📦 Repository: ${REPO}
+          🌿 Branch: ${BRANCH}
+          👤 Author: @${COMMIT_AUTHOR}
+          💬 Commit: ${COMMIT_MSG_SHORT}
+          🔖 SHA: ${SHORT_SHA}
+
+          ━━━━━━━━━━━━━━━━━━━━━━
+          📋 Workflow: ${WORKFLOW_NAME}
+
+          ${BUILD_ICON} Build & Push: ${BUILD_STATUS}
+          ${DEPLOY_ICON} Deploy: ${DEPLOY_STATUS}
+
+          ⏱️ Duration: ${DURATION_TEXT}
+
+          ━━━━━━━━━━━━━━━━━━━━━━
+          🐋 Docker Image:
+             ${IMAGE_NAME}:${TAG}
+
+          🖥️ Server: https://api.educonnect.dev
+          📚 Swagger: ${SWAGGER_URL}
+
+          ━━━━━━━━━━━━━━━━━━━━━━
+          ⏰ Time: ${TIMESTAMP} (GMT+7)
+          🔗 Details: ${RUN_URL}"
+
+          CONTENT=$(jq -cn --arg text "$MSG" '{text:$text}' | jq -c .)
+
+          PAYLOAD=$(jq -cn --arg cid "$CHAT_ID" --arg content "$CONTENT" \
+            '{receive_id:$cid, msg_type:"text", content:$content}')
+
+          echo "Sending message..."
+          RESPONSE=$(curl -s -X POST "https://open.larksuite.com/open-apis/im/v1/messages?receive_id_type=chat_id" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD")
+
+          echo "Lark API Response: $RESPONSE"
+
+          # Check if message was sent successfully
+          if echo "$RESPONSE" | jq -e '.code == 0' > /dev/null; then
+            echo "✅ Notification sent successfully"
+          else
+            echo "⚠️ Warning: Message may not have been sent properly"
+            echo "$RESPONSE" | jq '.'
+          fi

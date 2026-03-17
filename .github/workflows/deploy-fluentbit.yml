@@ -1,0 +1,274 @@
+name: Deploy FluentBit
+
+on:
+  push:
+    branches: ["deployment"]
+    paths:
+      - "fluentbit/fluent-bit.conf"
+      - "fluentbit/parser.conf"
+      - ".github/workflows/deploy-fluentbit.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-fluentbit
+  cancel-in-progress: true
+
+env:
+  CONTAINER_NAME: educonnect-fluentbit
+  IMAGE_NAME: fluent/fluent-bit:4.0
+
+jobs:
+  deploy_fluentbit:
+    runs-on: ubuntu-latest
+    environment: deployment
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Copy FluentBit configs to server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          source: "fluentbit/"
+          target: "./"
+          strip_components: 0
+
+      - name: Deploy FluentBit over SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          envs: CONTAINER_NAME,IMAGE_NAME
+          script: |
+            set -euo pipefail
+            
+            echo "Create Docker network if not exists"
+            docker network create educonnect-network || true
+            
+            echo "=========================================="
+            echo "Stopping old FluentBit container..."
+            echo "=========================================="
+            
+            if docker ps -a | grep -q ${CONTAINER_NAME}; then
+              echo "Found existing FluentBit container: ${CONTAINER_NAME}"
+            
+              # Stop with timeout
+              echo "Stopping container (timeout 30s)..."
+              docker stop -t 30 "${CONTAINER_NAME}" || true
+            
+              # Wait a bit for cleanup
+              sleep 3
+            
+              # Force remove if still exists
+              echo "Removing container..."
+              docker rm -f "${CONTAINER_NAME}" || true
+            
+              # Additional wait for resource release
+              echo "Waiting for resources to be released..."
+              sleep 5
+            else
+              echo "No existing FluentBit container found"
+            fi
+            
+            # Verify container is completely gone
+            if docker ps -a | grep -q ${CONTAINER_NAME}; then
+              echo "❌ Failed to remove old FluentBit container"
+              docker ps -a | grep ${CONTAINER_NAME}
+              exit 1
+            fi
+            
+            echo "=========================================="
+            echo "Starting new FluentBit container..."
+            echo "=========================================="
+            
+            docker run -d --name "${CONTAINER_NAME}" \
+              --network educonnect-network \
+              --user root \
+              -e LOG_PATH='/var/log/server' \
+              -e OPENSEARCH_HOST='${{ secrets.OPENSEARCH_HOST }}' \
+              -e OPENSEARCH_USER='${{ secrets.OPENSEARCH_USER }}' \
+              -e OPENSEARCH_PASSWORD='${{ secrets.OPENSEARCH_PASSWORD }}' \
+              -v ./fluentbit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro \
+              -v ./logs:/var/log/server:ro \
+              -v ./fluentbit/parser.conf:/fluent-bit/etc/parser.conf:ro \
+              --restart unless-stopped \
+              "${IMAGE_NAME}"
+            
+            CONTAINER_ID=$(docker ps -aq -f name=${CONTAINER_NAME})
+            echo "FluentBit Container ID: ${CONTAINER_ID}"
+            
+            echo "=========================================="
+            echo "Health checking FluentBit container..."
+            echo "=========================================="
+            
+            # Wait and check multiple times
+            for i in {1..6}; do
+              echo "Check attempt $i/6..."
+              sleep 5
+            
+              if docker ps | grep -q ${CONTAINER_NAME}; then
+                echo "✅ FluentBit container is running"
+            
+                # Show container info
+                docker ps --filter name=${CONTAINER_NAME} --format "table {{.ID}}\t{{.Status}}\t{{.Ports}}"
+            
+                # Show last 20 lines of logs
+                echo ""
+                echo "Recent FluentBit logs:"
+                docker logs --tail 20 ${CONTAINER_NAME} 2>&1
+            
+                # If we reach 30 seconds, consider it successful
+                if [ $i -ge 3 ]; then
+                  echo ""
+                  echo "✅ FluentBit container started successfully: ${CONTAINER_NAME}"
+                  break
+                fi
+              else
+                echo "❌ FluentBit container not running, attempt $i/6"
+            
+                if [ $i -eq 6 ]; then
+                  echo ""
+                  echo "❌ FluentBit container failed to start after 30 seconds"
+                  echo "Full container logs:"
+                  docker logs ${CONTAINER_NAME} 2>&1 || true
+            
+                  echo ""
+                  echo "Container inspect:"
+                  docker inspect ${CONTAINER_NAME} 2>&1 || true
+            
+                  exit 1
+                fi
+              fi
+            done
+            
+            echo "=========================================="
+            echo "Cleanup old images..."
+            echo "=========================================="
+            docker image prune -f
+            
+            echo ""
+            echo "✅ FluentBit deployment completed successfully!"
+
+  notify_lark:
+    name: Notify Lark - FluentBit Deploy
+    runs-on: ubuntu-latest
+    needs: [deploy_fluentbit]
+    if: always()
+    environment: deployment
+    env:
+      APP_ID: ${{ vars.LARK_APP_ID }}
+      APP_SECRET: ${{ vars.LARK_APP_SECRET }}
+      CHAT_ID: ${{ vars.LARK_CHAT_ID_DEPLOYMENT_FLUENTBIT }}
+      SERVER_HOST: ${{ secrets.SERVER_HOST }}
+      DEPLOY_STATUS: ${{ needs.deploy_fluentbit.result }}
+      REPO: ${{ github.repository }}
+      BRANCH: ${{ github.ref_name }}
+      COMMIT_SHA: ${{ github.sha }}
+      COMMIT_MSG: ${{ github.event.head_commit.message }}
+      COMMIT_AUTHOR: ${{ github.actor }}
+      RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      WORKFLOW_NAME: ${{ github.workflow }}
+    steps:
+      - name: Debug environment variables
+        run: |
+          echo "APP_ID length: ${#APP_ID}"
+          echo "APP_SECRET length: ${#APP_SECRET}"
+          echo "CHAT_ID: ${CHAT_ID}"
+          echo "CHAT_ID length: ${#CHAT_ID}"
+          if [ -z "$CHAT_ID" ]; then
+            echo "❌ CHAT_ID is empty or not set"
+            exit 1
+          fi
+
+      - name: Get Lark tenant token
+        id: get_token
+        run: |
+          RESP=$(curl -s -X POST "https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal" \
+            -H "Content-Type: application/json" \
+            -d "{\"app_id\":\"$APP_ID\",\"app_secret\":\"$APP_SECRET\"}")
+          
+          echo "Response: $RESP"
+          TOKEN=$(echo "$RESP" | jq -r '.tenant_access_token')
+          if [ "$TOKEN" = "null" ] || [ -z "$TOKEN" ]; then
+            echo "❌ Failed to get tenant_access_token"
+            exit 1
+          fi
+          echo "TOKEN=$TOKEN" >> $GITHUB_ENV
+
+      - name: Determine overall status
+        id: overall_status
+        run: |
+          if [ "$DEPLOY_STATUS" = "success" ]; then
+            echo "OVERALL_ICON=📊" >> $GITHUB_ENV
+            echo "OVERALL_STATUS=FluentBit Deployed Successfully" >> $GITHUB_ENV
+            echo "STATUS_COLOR=success" >> $GITHUB_ENV
+          elif [ "$DEPLOY_STATUS" = "failure" ]; then
+            echo "OVERALL_ICON=❌" >> $GITHUB_ENV
+            echo "OVERALL_STATUS=FluentBit Deployment Failed" >> $GITHUB_ENV
+            echo "STATUS_COLOR=danger" >> $GITHUB_ENV
+          elif [ "$DEPLOY_STATUS" = "cancelled" ]; then
+            echo "OVERALL_ICON=⚠️" >> $GITHUB_ENV
+            echo "OVERALL_STATUS=FluentBit Deployment Cancelled" >> $GITHUB_ENV
+            echo "STATUS_COLOR=warning" >> $GITHUB_ENV
+          else
+            echo "OVERALL_ICON=⏸️" >> $GITHUB_ENV
+            echo "OVERALL_STATUS=FluentBit Deployment Skipped" >> $GITHUB_ENV
+            echo "STATUS_COLOR=neutral" >> $GITHUB_ENV
+          fi
+
+      - name: Send Lark notification
+        run: |
+          # Trim any trailing CR/LF from SERVER_HOST to avoid URL line breaks
+          SERVER_HOST_CLEAN=$(printf "%s" "$SERVER_HOST" | tr -d '\r\n')
+          
+          # Truncate commit message to first line (max 100 chars)
+          COMMIT_MSG_SHORT=$(echo "$COMMIT_MSG" | head -n1 | cut -c1-100)
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+          
+          # Get current timestamp in Vietnam time (UTC+7)
+          TIMESTAMP=$(TZ='Asia/Ho_Chi_Minh' date +"%Y-%m-%d %H:%M:%S")
+          
+          MSG="${OVERALL_ICON} ${OVERALL_STATUS}
+          
+          ━━━━━━━━━━━━━━━━━━━━━━
+          📦 Repository: ${REPO}
+          🌿 Branch: ${BRANCH}
+          👤 Author: @${COMMIT_AUTHOR}
+          💬 Commit: ${COMMIT_MSG_SHORT}
+          🔖 SHA: ${SHORT_SHA}
+          
+          ━━━━━━━━━━━━━━━━━━━━━━
+          📋 Workflow: ${WORKFLOW_NAME}
+          📊 Service: FluentBit Logging
+          
+          ━━━━━━━━━━━━━━━━━━━━━━
+          🖥️ Server: ${SERVER_HOST_CLEAN}
+          🐋 Container: educonnect-fluentbit
+          
+          ━━━━━━━━━━━━━━━━━━━━━━
+          ⏰ Time: ${TIMESTAMP} (GMT+7)
+          🔗 Details: ${RUN_URL}"
+          
+          CONTENT=$(jq -cn --arg text "$MSG" '{text:$text}' | jq -c .)
+          
+          PAYLOAD=$(jq -cn --arg cid "$CHAT_ID" --arg content "$CONTENT" \
+            '{receive_id:$cid, msg_type:"text", content:$content}')
+          
+          echo "Sending message..."
+          RESPONSE=$(curl -s -X POST "https://open.larksuite.com/open-apis/im/v1/messages?receive_id_type=chat_id" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD")
+          
+          echo "Lark API Response: $RESPONSE"
+          
+          # Check if message was sent successfully
+          if echo "$RESPONSE" | jq -e '.code == 0' > /dev/null; then
+            echo "✅ Notification sent successfully"
+          else
+            echo "⚠️ Warning: Message may not have been sent properly"
+            echo "$RESPONSE" | jq '.'
+          fi

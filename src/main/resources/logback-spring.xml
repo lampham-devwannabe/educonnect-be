@@ -1,0 +1,105 @@
+<configuration>
+    <!-- Console appender for development -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Encoder JSON cho system log -->
+    <appender name="SYSTEM_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH:-./logs}/system.log</file>
+
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH:-./logs}/system-%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp>
+                    <timeZone>Asia/Ho_Chi_Minh</timeZone>
+                </timestamp>
+                <logLevel/>
+                <loggerName/>
+                <threadName/>
+                <message/>
+                <stackTrace/>
+            </providers>
+        </encoder>
+    </appender>
+
+    <!-- Search log -->
+    <appender name="SEARCH_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH:-./logs}/search.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH:-./logs}/search-%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp>
+                    <timeZone>Asia/Ho_Chi_Minh</timeZone>
+                </timestamp>
+                <!--                <logLevel/>-->
+                <!--                <loggerName/>-->
+                <!--                <threadName/>-->
+                <!--                <message/>-->
+                <mdc>
+                    <includeMdcKeyName>sessionId</includeMdcKeyName>
+                    <includeMdcKeyName>version</includeMdcKeyName>
+                    <includeMdcKeyName>userId</includeMdcKeyName>
+                    <includeMdcKeyName>timestamp</includeMdcKeyName>
+                    <includeMdcKeyName>page</includeMdcKeyName>
+                    <includeMdcKeyName>size</includeMdcKeyName>
+                    <includeMdcKeyName>query</includeMdcKeyName>
+                    <includeMdcKeyName>filters</includeMdcKeyName>
+                    <includeMdcKeyName>results</includeMdcKeyName>
+                </mdc>
+
+            </providers>
+        </encoder>
+    </appender>
+
+    <!-- Interaction log -->
+    <appender name="INTERACTION_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH:-./logs}/interaction.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH:-./logs}/interaction-%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <!-- Use timestamp from MDC instead of generating one -->
+                <mdc>
+                    <includeMdcKeyName>timestamp</includeMdcKeyName>
+                    <includeMdcKeyName>sessionId</includeMdcKeyName>
+                    <includeMdcKeyName>version</includeMdcKeyName>
+                    <includeMdcKeyName>userId</includeMdcKeyName>
+                    <includeMdcKeyName>tutorId</includeMdcKeyName>
+                    <includeMdcKeyName>eventType</includeMdcKeyName>
+                    <includeMdcKeyName>rank</includeMdcKeyName>
+                    <includeMdcKeyName>query</includeMdcKeyName>
+                    <includeMdcKeyName>filters</includeMdcKeyName>
+                    <includeMdcKeyName>value</includeMdcKeyName>
+                </mdc>
+            </providers>
+        </encoder>
+    </appender>
+
+    <!-- Root logger -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="SYSTEM_FILE"/>
+    </root>
+
+    <!-- Logger riêng cho từng loại -->
+    <logger name="com.sep.educonnect.search" level="INFO" additivity="false">
+        <appender-ref ref="SEARCH_FILE"/>
+    </logger>
+
+    <logger name="com.sep.educonnect.interaction" level="INFO" additivity="false">
+        <appender-ref ref="INTERACTION_FILE"/>
+    </logger>
+
+</configuration>

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Test Email Template</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        line-height: 1.6;
+        color: #333;
+        max-width: 600px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f4f4f4;
+      }
+      .container {
+        background-color: white;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      }
+      .header {
+        text-align: center;
+        color: #2c3e50;
+        border-bottom: 3px solid #3498db;
+        padding-bottom: 20px;
+        margin-bottom: 30px;
+      }
+      .content {
+        margin: 20px 0;
+      }
+      .highlight {
+        background-color: #e8f4fd;
+        padding: 15px;
+        border-left: 4px solid #3498db;
+        margin: 20px 0;
+      }
+      .footer {
+        text-align: center;
+        margin-top: 30px;
+        padding-top: 20px;
+        border-top: 1px solid #eee;
+        color: #666;
+        font-size: 14px;
+      }
+      .button {
+        display: inline-block;
+        background-color: #3498db;
+        color: white;
+        padding: 12px 24px;
+        text-decoration: none;
+        border-radius: 5px;
+        margin: 10px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>🧪 Test Email Template</h1>
+        <p>Đây là email test từ EduConnect System</p>
+      </div>
+
+      <div class="content">
+        <h2>Xin chào <span th:text="${name}">[Tên người dùng]</span>!</h2>
+
+        <p>Đây là email test để kiểm tra hệ thống gửi mail của EduConnect.</p>
+
+        <div class="highlight">
+          <h3>📋 Thông tin test:</h3>
+          <ul>
+            <li>
+              <strong>Thời gian:</strong>
+              <span th:text="${currentTime}">[Thời gian hiện tại]</span>
+            </li>
+            <li><strong>Template:</strong> test-email</li>
+            <li>
+              <strong>Biến test:</strong>
+              <span th:text="${testVariable}">[Biến test]</span>
+            </li>
+          </ul>
+        </div>
+
+        <p>
+          Nếu bạn nhận được email này, có nghĩa là hệ thống gửi mail đang hoạt
+          động bình thường! 🎉
+        </p>
+
+        <div style="text-align: center; margin: 30px 0">
+          <a href="#" class="button">Truy cập hệ thống</a>
+        </div>
+      </div>
+
+      <div class="footer">
+        <p>📧 Email này được gửi từ EduConnect System</p>
+        <p>🔧 Đây là email test - không cần phản hồi</p>
+      </div>
+    </div>
+  </body>
+</html>

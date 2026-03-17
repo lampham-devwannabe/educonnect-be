@@ -1,0 +1,69 @@
+server:
+  port: 0
+
+spring:
+  # Datasource will be configured via @DynamicPropertySource in integration tests
+  # This allows Testcontainers to start the container first
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+  opensearch:
+    uris: http://localhost:9200
+    username: admin
+    password: admin
+
+jwt:
+  signerKey: test-signer-key-for-testing-purposes-only-very-long-key-required
+  valid-duration: 3600
+  refreshable-duration: 36000
+
+s3:
+  bucket-name: test-bucket
+  region: us-east-1
+  presign-period-minutes: 60
+
+cdn:
+  domain: https://test-cdn.example.com
+  key: test-key-pair-id
+
+mailgun:
+  domain: test.mailgun.org
+  from: test@example.com
+  name: Test Sender
+  api-key: test-api-key
+
+openai:
+  api-key: test-openai-key
+
+zoom:
+  account-id: test-account-id
+  client-id: test-client-id
+  client-secret: test-client-secret
+
+payos:
+  client-id: test-client-id
+  api-key: test-api-key
+  check-sum: test-checksum-key
+  return-url: http://localhost:8080/payment/return
+  cancel-url: http://localhost:8080/payment/cancel
+
+rate-limit:
+  capacity: 10
+  refill-tokens: 10
+  refill-duration: 1
+
+logging:
+  level:
+    root: INFO
+    com.sep.educonnect: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+
+app:
+  frontend-url: http://localhost:5173
+

@@ -1,0 +1,111 @@
+name: PR Notification to Lark
+
+on:
+  pull_request:
+    types: [opened, reopened, closed]
+
+jobs:
+  notify_lark:
+    name: Notify Lark on PR
+    runs-on: ubuntu-latest
+    environment: deployment
+    env:
+      APP_ID: ${{ vars.LARK_APP_ID }}
+      APP_SECRET: ${{ vars.LARK_APP_SECRET }}
+      CHAT_ID: ${{ vars.LARK_CHAT_PULL_REQUEST_BE }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      SOURCE_BRANCH: ${{ github.event.pull_request.head.ref }}
+      TARGET_BRANCH: ${{ github.event.pull_request.base.ref }}
+      PR_STATE: ${{ github.event.pull_request.state }}
+      PR_MERGED: ${{ github.event.pull_request.merged }}
+      PR_ACTION: ${{ github.event.action }}
+      COMMITS_COUNT: ${{ github.event.pull_request.commits }}
+      CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+      ADDITIONS: ${{ github.event.pull_request.additions }}
+      DELETIONS: ${{ github.event.pull_request.deletions }}
+      CREATED_AT: ${{ github.event.pull_request.created_at }}
+      UPDATED_AT: ${{ github.event.pull_request.updated_at }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Get Lark tenant token
+        id: get_token
+        run: |
+          RESP=$(curl -s -X POST "https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal" \
+            -H "Content-Type: application/json" \
+            -d "{\"app_id\":\"$APP_ID\",\"app_secret\":\"$APP_SECRET\"}")
+
+          echo "Response: $RESP"
+          TOKEN=$(echo "$RESP" | jq -r '.tenant_access_token')
+          if [ "$TOKEN" = "null" ] || [ -z "$TOKEN" ]; then
+            echo "❌ Failed to get tenant_access_token"
+            exit 1
+          fi
+          echo "TOKEN=$TOKEN" >> $GITHUB_ENV
+
+      - name: Determine PR status
+        id: pr_status
+        run: |
+          if [ "$PR_ACTION" = "closed" ] && [ "$PR_MERGED" = "true" ]; then
+            echo "STATUS=✅ Merged" >> $GITHUB_ENV
+            echo "ICON=✅" >> $GITHUB_ENV
+          elif [ "$PR_ACTION" = "closed" ] && [ "$PR_MERGED" = "false" ]; then
+            echo "STATUS=❌ Closed without merge" >> $GITHUB_ENV
+            echo "ICON=❌" >> $GITHUB_ENV
+          elif [ "$PR_ACTION" = "opened" ]; then
+            echo "STATUS=🆕 Opened" >> $GITHUB_ENV
+            echo "ICON=🆕" >> $GITHUB_ENV
+          elif [ "$PR_ACTION" = "reopened" ]; then
+            echo "STATUS=🔄 Reopened" >> $GITHUB_ENV
+            echo "ICON=🔄" >> $GITHUB_ENV
+          else
+            echo "STATUS=📝 Updated" >> $GITHUB_ENV
+            echo "ICON=📝" >> $GITHUB_ENV
+          fi
+
+      - name: Send Lark notification
+        run: |
+          # Convert UTC time to Vietnam time (UTC+7)
+          CREATED_VN=$(TZ='Asia/Ho_Chi_Minh' date -d "${CREATED_AT}" +'%Y-%m-%d %H:%M:%S')
+          
+          MSG="${ICON} Pull Request #${PR_NUMBER}
+          
+          Status: ${STATUS}
+          Repository: ${REPO}
+          
+          📋 Title: ${PR_TITLE}
+          👤 Author: @${PR_AUTHOR}
+          
+          🔀 ${SOURCE_BRANCH} → ${TARGET_BRANCH}
+          
+          📊 Changes:
+          • Commits: ${COMMITS_COUNT}
+          • Files changed: ${CHANGED_FILES}
+          • Additions: +${ADDITIONS}
+          • Deletions: -${DELETIONS}
+          
+          ⏰ Created: ${CREATED_VN} (GMT+7)
+          🔗 URL: ${PR_URL}"
+
+          CONTENT=$(jq -cn --arg text "$MSG" '{text:$text}' | jq -c .)
+
+          PAYLOAD=$(jq -cn --arg cid "$CHAT_ID" --arg content "$CONTENT" \
+            '{receive_id:$cid, msg_type:"text", content:$content}')
+
+          echo "Sending message..."
+          RESPONSE=$(curl -s -X POST "https://open.larksuite.com/open-apis/im/v1/messages?receive_id_type=chat_id" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD")
+          
+          echo "Lark API Response: $RESPONSE"
+          
+          # Check if message was sent successfully
+          if echo "$RESPONSE" | jq -e '.code == 0' > /dev/null; then
+            echo "✅ Notification sent successfully"
+          else
+            echo "⚠️ Warning: Message may not have been sent properly"
+            echo "$RESPONSE" | jq '.'
+          fi

@@ -1,0 +1,200 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html dir="ltr" xmlns:th="http://www.thymeleaf.org" xmlns="http://www.w3.org/1999/xhtml" lang="vi">
+<head>
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <meta name="x-apple-disable-message-reformatting" content="">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta content="telephone=no" name="format-detection">
+    <title>Thư mời tham gia lớp học</title>
+    <style type="text/css">
+        #outlook a { padding:0; }
+        body, table, td, p, a, h1, h2, h3 { font-family:Montserrat, Arial, sans-serif; }
+        a[x-apple-data-detectors] {
+            color:inherit!important;
+            text-decoration:none!important;
+            font-size:inherit!important;
+            font-family:inherit!important;
+            font-weight:inherit!important;
+            line-height:inherit!important;
+        }
+        .wrapper-bg { background-color:#f5f6f7; }
+        .outer { border-collapse:collapse; border-spacing:0; width:100%; height:100%; background-color:#f5f6f7; }
+        .container {
+            border-collapse:collapse;
+            border-spacing:0;
+            background-color:#ffffff;
+            width:600px;
+            max-width:600px;
+            border-radius:10px;
+            overflow:hidden;
+        }
+        .header {
+            background:#f0f4f4;
+            border-bottom:1px solid #e6eeee;
+        }
+        .brand {
+            margin:0;
+            font-size:16px;
+            font-weight:700;
+            letter-spacing:.4px;
+            color:#456866;
+        }
+        .p-24 { padding:24px; }
+        .pt-24 { padding-top:24px; }
+        .pb-8 { padding-bottom:8px; }
+        .pb-12 { padding-bottom:12px; }
+        .px-24 { padding-left:24px; padding-right:24px; }
+        .py-16 { padding-top:16px; padding-bottom:16px; }
+        .py-20 { padding-top:20px; padding-bottom:20px; }
+        .py-8 { padding-top:8px; padding-bottom:8px; }
+        .title { margin:0 0 4px 0; line-height:32px; font-size:22px; font-weight:800; color:#222222; }
+        .paragraph { margin:0; line-height:22px; font-size:14px; color:#444444; }
+        .divider { height:1px; background:#eeeeee; border:0; }
+        .card {
+            background:#f9fbfb;
+            border:1px solid #eaf1f0;
+            border-radius:8px;
+        }
+        .quote {
+            margin:0;
+            line-height:22px;
+            font-size:14px;
+            color:#3a5a58;
+        }
+        .info-table { width:100%; border-collapse:collapse; border-spacing:0; }
+        .info-row { padding:8px 0; border-bottom:1px solid #eeeeee; }
+        .info-desc { margin-top:4px; line-height:22px; font-size:14px; color:#444444; }
+        .center { text-align:center; }
+        .btn {
+            display:inline-block;
+            padding:12px 20px;
+            background-color:#456866;
+            color:#ffffff !important;
+            text-decoration:none;
+            border-radius:6px;
+            font-family:Montserrat, Arial, sans-serif;
+            font-size:14px;
+        }
+        .muted { color:#666666; }
+        .footer-note { margin:0; line-height:22px; font-size:14px; color:#444444; }
+        .btn {
+            display:inline-block;
+        }
+        .footer-meta {
+            margin:0;
+            line-height:18px;
+            font-size:12px;
+            color:#6b7a79;
+            text-align:center;
+        }
+        @media only screen and (max-width:600px) {
+            .container { width:100% !important; }
+        }
+    </style>
+</head>
+<body style="width:100%;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;padding:0;Margin:0" class="wrapper-bg">
+<div dir="ltr" class="es-wrapper-color wrapper-bg" lang="vi">
+    <table class="es-wrapper outer" width="100%" cellspacing="0" cellpadding="0">
+        <tr>
+            <td valign="top" class="py-20">
+                <table class="container" cellspacing="0" cellpadding="0" align="center">
+                    <tr class="header">
+                        <td class="p-24">
+                            <span class="brand">EduConnect</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td align="left" class="p-24 pb-8">
+                            <h1 class="title">Thư mời tham gia lớp học</h1>
+                            <p class="paragraph">Xin chào <strong th:text="${studentName}">Bạn</strong>,</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td align="left" class="px-24 pb-12">
+                            <p class="paragraph">
+                                Bạn vừa nhận được lời mời tham gia lớp học từ <strong th:text="${tutorName}">Gia sư</strong>.
+                                Dưới đây là thông tin lớp:
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td align="left" class="px-24 pb-8">
+                            <table width="100%" cellpadding="0" cellspacing="0" class="info-table">
+                                <tr>
+                                    <td class="info-row">
+                                        <strong>Tên lớp:</strong>
+                                        <span th:text="${classTitle}">Tiêu đề lớp</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td class="info-row">
+                                        <strong>Khoá học:</strong>
+                                        <span th:text="${courseName}">Tên khoá học</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td class="info-row">
+                                        <strong>Gia sư:</strong>
+                                        <span th:text="${tutorName}">Tên gia sư</span>
+                                    </td>
+                                </tr>
+                                <tr th:if="${description != null}">
+                                    <td class="py-8">
+                                        <strong>Mô tả:</strong>
+                                        <div class="info-desc" th:text="${description}">
+                                            Mô tả ngắn về lớp học.
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td align="center" class="px-24 py-16 pb-8">
+                            <a class="btn" th:href="${inviteUrl}" target="_blank" rel="noopener">Tham gia lớp học</a>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="px-24">
+                            <hr class="divider">
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="px-24 pb-12">
+                            <div class="card p-24">
+                                <p class="quote">
+                                    Hành trình học tập bắt đầu từ một bước nhỏ. Hãy tham gia lớp để tiến gần hơn tới mục tiêu của bạn!
+                                </p>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td align="left" class="px-24 py-20 pb-8">
+                            <p class="footer-note">
+                                Nếu bạn không mong đợi thư mời này, vui lòng bỏ qua email.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td align="left" class="px-24 py-8">
+                            <p class="footer-note">
+                                Trân trọng,<br>
+                                <span th:text="${emailSign}">EduConnect</span>
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="px-24 pb-12">
+                            <p class="footer-meta">📧 Email này được gửi từ EduConnect System</p>
+                            <p class="footer-meta">© 2025 EduConnect - Kết nối tri thức</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</div>
+</body>
+</html>
+
+

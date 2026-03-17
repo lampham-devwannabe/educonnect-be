@@ -1,0 +1,83 @@
+name: Deploy Nginx Proxy Manager
+
+on:
+    push:
+        branches: ["deployment"]
+        paths:
+            - ".github/workflows/deploy-nginx-proxy-manager.yml"
+
+concurrency:
+    group: deploy-npm
+    cancel-in-progress: true
+
+env:
+    NPM_CONTAINER_NAME: nginx-proxy-manager
+    NPM_IMAGE_NAME: jc21/nginx-proxy-manager:latest
+
+jobs:
+    deploy_npm:
+        runs-on: ubuntu-latest
+        environment: deployment
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Deploy NPM over SSH
+              uses: appleboy/ssh-action@master
+              with:
+                  host: ${{ secrets.SERVER_HOST }}
+                  username: ${{ secrets.SERVER_USER }}
+                  password: ${{ secrets.SERVER_PASSWORD }}
+                  envs: NPM_CONTAINER_NAME,NPM_IMAGE_NAME
+                  script: |
+                      set -euo pipefail
+
+                      echo "=========================================="
+                      echo "Deploying Nginx Proxy Manager..."
+                      echo "=========================================="
+
+                      # Create directories for NPM data
+                      mkdir -p ./npm-data
+                      mkdir -p ./npm-letsencrypt
+
+                      # Stop and remove existing NPM container if exists
+                      if docker ps -a | grep -q ${NPM_CONTAINER_NAME}; then
+                        echo "Found existing NPM container, stopping..."
+                        docker stop ${NPM_CONTAINER_NAME} || true
+                        docker rm ${NPM_CONTAINER_NAME} || true
+                      fi
+
+                      # Ensure Docker network exists
+                      docker network create educonnect-network || true
+
+                      # Pull latest image
+                      echo "Pulling NPM image..."
+                      docker pull ${NPM_IMAGE_NAME}
+
+                      # Run NPM container with docker run
+                      echo "Starting NPM container..."
+                      docker run -d --name ${NPM_CONTAINER_NAME} \
+                        --network educonnect-network \
+                        -p 80:80 \
+                        -p 443:443 \
+                        -p 81:81 \
+                        -v ./npm-data:/data \
+                        -v ./npm-letsencrypt:/etc/letsencrypt \
+                        --restart unless-stopped \
+                        -e DB_SQLITE_FILE="/data/database.sqlite" \
+                        ${NPM_IMAGE_NAME}
+
+                      echo "=========================================="
+                      echo "NPM Deployment completed!"
+                      echo "=========================================="
+                    
+                      # Health check
+                      sleep 10
+                      if docker ps | grep -q ${NPM_CONTAINER_NAME}; then
+                        echo "✅ NPM container is running"
+                        docker ps --filter name=${NPM_CONTAINER_NAME} --format "table {{.ID}}\t{{.Status}}\t{{.Ports}}"
+                      else
+                        echo "❌ NPM container failed to start"
+                        docker logs ${NPM_CONTAINER_NAME} || true
+                        exit 1
+                      fi

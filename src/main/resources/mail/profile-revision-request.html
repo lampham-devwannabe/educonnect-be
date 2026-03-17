@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Yêu cầu chỉnh sửa hồ sơ</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f7f9fc;
+        }
+        .container {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            text-align: center;
+            color: #f39c12;
+            border-bottom: 3px solid #f39c12;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        .content {
+            margin: 20px 0;
+        }
+        .highlight {
+            background-color: #fff3cd;
+            padding: 15px;
+            border-left: 4px solid #f39c12;
+            margin: 20px 0;
+        }
+        .info-box {
+            background-color: #fff8e1;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            color: #666;
+            font-size: 14px;
+        }
+        .button {
+            display: inline-block;
+            background-color: #f39c12;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>🛠 Yêu cầu chỉnh sửa hồ sơ</h1>
+        <p>Hồ sơ của bạn cần được cập nhật thêm thông tin</p>
+    </div>
+
+    <div class="content">
+        <h2>Xin chào <span th:text="${tutorName}">[Tên gia sư]</span>,</h2>
+        <p>
+            Cảm ơn bạn đã gửi hồ sơ gia sư. Sau khi xem xét, chúng tôi nhận thấy hồ sơ
+            cần một số điều chỉnh trước khi có thể được phê duyệt.
+        </p>
+
+        <div class="highlight">
+            <h3>📑 Chi tiết yêu cầu chỉnh sửa:</h3>
+            <div class="info-box">
+                <p><strong>Mã hồ sơ:</strong> <span th:text="${profileId}">[ID]</span></p>
+                <p><strong>Ngày yêu cầu:</strong> <span th:text="${revisionDate}">[Ngày yêu cầu]</span></p>
+                <p><strong>Ghi chú chỉnh sửa:</strong> <span th:text="${revisionNotes}">[Nội dung chỉnh sửa]</span></p>
+            </div>
+        </div>
+
+        <p>
+            Vui lòng truy cập vào tài khoản của bạn để cập nhật hồ sơ theo hướng dẫn.
+        </p>
+
+    </div>
+
+    <div class="footer">
+        <p>📧 Email này được gửi từ EduConnect System</p>
+        <p>© 2025 EduConnect - Kết nối tri thức</p>
+    </div>
+</div>
+</body>
+</html>
